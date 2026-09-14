@@ -1,0 +1,231 @@
+name: Fork PR Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-pr-validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  strict-quality:
+    if: github.repository == 'Creatixpy/node-pg-migrate'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    name: 'Strict quality: node-24.21.0, ubuntu-latest'
+    env:
+      CI_PREFLIGHT: 1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set node version to 24.21.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.21.0
+          cache: 'pnpm'
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Check pull request diff for whitespace errors
+        if: github.event_name == 'pull_request'
+        run: git diff --check ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Build documentation
+        run: pnpm run docs:build
+
+      - name: Enforce coverage thresholds
+        run: pnpm run test:coverage --run
+
+      - name: Check that validation did not rewrite tracked files
+        run: |
+          git diff --exit-code
+          git diff --cached --exit-code
+
+  portable-unit:
+    if: github.repository == 'Creatixpy/node-pg-migrate'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+        node_version: [22.22.2, 24.21.0, 26.8.2]
+    name: 'Portable unit: node-${{ matrix.node_version }}, ${{ matrix.os }}'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set node version to ${{ matrix.node_version }}
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node_version }}
+          cache: 'pnpm'
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Run unit tests
+        run: pnpm run test:unit --run
+
+      - name: Smoke test CLI
+        run: node bin/node-pg-migrate.js --help
+
+  minimum-node:
+    if: github.repository == 'Creatixpy/node-pg-migrate'
+    needs: package-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    name: 'Minimum supported runtime: node-22.12.0, ubuntu-latest'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set node version to 22.12.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.12.0
+          cache: 'pnpm'
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Download package built on the development runtime
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: node-pg-migrate-package-${{ github.run_id }}
+          path: fork-ci-package
+
+      - name: Restore generated files from the package
+        run: |
+          tar -xzf fork-ci-package/*.tgz --strip-components=1 \
+            package/dist/index.d.ts \
+            package/dist/index.js \
+            package/bin/node-pg-migrate.js
+
+      - name: Run unit tests
+        run: pnpm run test:unit --run
+
+      - name: Check TypeScript
+        run: pnpm run ts-check
+
+      - name: Smoke test CLI
+        run: node bin/node-pg-migrate.js --help
+
+  package-build:
+    if: github.repository == 'Creatixpy/node-pg-migrate'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    name: 'Published package contents: node-24.21.0, ubuntu-latest'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set node version to 24.21.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.21.0
+          cache: 'pnpm'
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Create package tarball
+        run: |
+          mkdir -p fork-ci-package
+          pnpm pack --pack-destination fork-ci-package
+
+      - name: Verify package contents
+        run: node .github/fork-ci/verify-package.mjs package fork-ci-package
+
+      - name: Upload package tarball
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: node-pg-migrate-package-${{ github.run_id }}
+          path: fork-ci-package/*.tgz
+          if-no-files-found: error
+          retention-days: 3
+
+  package-consumer:
+    if: github.repository == 'Creatixpy/node-pg-migrate'
+    needs: package-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node_version: 22.12.0
+            peer_line: pg-7
+            pg_version: 7.0.2
+            types_pg_version: 7.14.11
+          - node_version: 22.12.0
+            peer_line: pg-8
+            pg_version: 8.23.0
+            types_pg_version: 8.23.1
+          - node_version: 24.21.0
+            peer_line: pg-7
+            pg_version: 7.0.2
+            types_pg_version: 7.14.11
+          - node_version: 24.21.0
+            peer_line: pg-8
+            pg_version: 8.23.0
+            types_pg_version: 8.23.1
+          - node_version: 26.8.2
+            peer_line: pg-7
+            pg_version: 7.0.2
+            types_pg_version: 7.14.11
+          - node_version: 26.8.2
+            peer_line: pg-8
+            pg_version: 8.23.0
+            types_pg_version: 8.23.1
+    name: 'Package consumer: node-${{ matrix.node_version }}, ${{ matrix.peer_line }}'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set node version to ${{ matrix.node_version }}
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node_version }}
+
+      - name: Download package tarball
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: node-pg-migrate-package-${{ github.run_id }}
+          path: fork-ci-package
+
+      - name: Test package as an external consumer
+        run: >-
+          node .github/fork-ci/verify-package.mjs consumer fork-ci-package
+          ${{ matrix.pg_version }} ${{ matrix.types_pg_version }}
