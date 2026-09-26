@@ -5,6 +5,21 @@ major versions of `node-pg-migrate`.
 
 ## From v9 to v10
 
+### Migration history corrections
+
+Migration names containing apostrophes are now recorded exactly. This does not
+repair history written by older versions: for example, `0001_users''table.cjs`
+could have been recorded as `0001_users'table`. Before running migrations after
+upgrading, compare affected files with your configured `migrationsTable` and
+the database's actual state. For a confirmed applied migration, update the
+existing row's `name` to the exact filename without its extension
+(`0001_users''table` in this example), preserving `id` and `run_on`.
+
+If the correct name is already recorded too, reconcile the duplicate entries
+first. Disabling order checking does not repair old names and can replay an
+already-applied migration. Schema changes left unrecorded by an earlier failed
+run also need manual reconciliation before retrying.
+
 ### Breaking changes
 
 #### The CLI now uses subcommands
@@ -152,6 +167,30 @@ Upgrading does not rebuild indexes that were already created on the wrong
 expression. Inspect affected indexes with `pg_get_indexdef`, resolve any duplicate
 column values, and use a new corrective migration to drop and recreate the
 intended unique index. See [Index Operations](migrations/indexes).
+
+#### Grouped SQL filenames and existing history
+
+With `loader: 'sql'`, uppercase and mixed-case SQL extensions now group correctly:
+`001_init.up.SQL` and `001_init.down.SqL` form one migration named `001_init`.
+The split migration ID always ends in lowercase `.sql`.
+
+Earlier versions could apply these files separately and record `001_init.up`
+and `001_init.down`. Before upgrading, inspect the affected database and your
+configured `migrationsTable` (in `migrationsSchema`, if configured). For an
+already-applied migration, rename its `001_init.up` history entry to `001_init`
+and remove its corresponding `001_init.down` entry if present. Keep the up
+entry's `id` and `run_on` values. If `001_init` is already recorded, reconcile
+the duplicate history against the database's actual state first.
+
+The loader does not rewrite history automatically. Disabling `checkOrder` does
+not correct old names and can execute an already-applied migration again.
+
+Direction tokens must also be lowercase: filenames ending in `.UP.sql`,
+`.Down.SQL`, or other non-lowercase variants now throw before migration SQL is
+read or executed. Rename those tokens to `.up` and `.down` and, if already
+applied, reconcile their case-sensitive history names using the same process.
+The default and `legacySql` loaders are unchanged. See
+[Migration Loading Strategies](migration-loading-strategies#example-use-grouped-sql-loader).
 
 ## From v8 to v9
 
