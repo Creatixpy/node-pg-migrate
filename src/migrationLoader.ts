@@ -204,11 +204,15 @@ interface SqlGroup {
  * @returns The parsed file.
  */
 function parseSqlFile(filePath: string): ParsedSqlFile {
-  const name = basename(filePath).replace(/\.sql$/i, '');
+  const fileName = basename(filePath);
+  const name = fileName.replace(/\.sql$/i, '');
   const direction = /\.(up|down)$/i.exec(name)?.[1];
 
   if (direction && direction !== direction.toLowerCase()) {
-    throw new Error(`Direction token must be lowercase: ${basename(filePath)}`);
+    const suggestedName = `${name.slice(0, -direction.length)}${direction.toLowerCase()}${fileName.slice(name.length)}`;
+    throw new Error(
+      `Direction token must be lowercase: ${fileName} (rename to ${suggestedName})`
+    );
   }
 
   if (name.endsWith('.up')) {
