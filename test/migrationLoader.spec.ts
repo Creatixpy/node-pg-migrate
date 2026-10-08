@@ -176,10 +176,18 @@ describe('loadMigrationUnits', () => {
   );
 
   describe.each(['sql', 'SQL', 'SqL'])('SQL extension .%s', (extension) => {
-    it.each(['UP', 'Up', 'uP', 'DOWN', 'Down', 'dOwN'])(
+    it.each([
+      ['UP', 'up'],
+      ['Up', 'up'],
+      ['uP', 'up'],
+      ['DOWN', 'down'],
+      ['Down', 'down'],
+      ['dOwN', 'down'],
+    ])(
       'rejects direction token .%s before reading files',
-      async (direction) => {
+      async (direction, lowercaseDirection) => {
         const fileName = `001_Init.${direction}.${extension}`;
+        const suggestedName = `001_Init.${lowercaseDirection}.${extension}`;
 
         await expect(
           loadMigrationUnits(
@@ -190,10 +198,39 @@ describe('loadMigrationUnits', () => {
             },
             [join('migrations', fileName)]
           )
-        ).rejects.toThrow(`Direction token must be lowercase: ${fileName}`);
+        ).rejects.toThrow(
+          new Error(
+            `Direction token must be lowercase: ${fileName} (rename to ${suggestedName})`
+          )
+        );
       }
     );
   });
+
+  it.each([
+    ['001_init.UP.SQL', '001_init.up.SQL'],
+    ['001_init.DOWN.sql', '001_init.down.sql'],
+    ['MyMigration.Up.Sql', 'MyMigration.up.Sql'],
+    ['001_UP.DOWN.Init.uP.sQl', '001_UP.DOWN.Init.up.sQl'],
+  ])(
+    'suggests renaming %s to %s without changing the rest of the filename',
+    async (fileName, suggestedName) => {
+      await expect(
+        loadMigrationUnits(
+          {
+            migrationLoaderStrategies: [
+              { extensions: ['.sql'], loader: 'sql' },
+            ],
+          },
+          [join('migrations', fileName)]
+        )
+      ).rejects.toThrow(
+        new Error(
+          `Direction token must be lowercase: ${fileName} (rename to ${suggestedName})`
+        )
+      );
+    }
+  );
 
   it.each(['default', 'legacySql'] as const)(
     'keeps uppercase direction tokens unchanged with the %s SQL loader',
