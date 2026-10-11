@@ -43,6 +43,17 @@ that reads this option and passes it to an API accepting `MigrationDirection` (`
 
 ### Breaking changes
 
+#### CockroachDB shared transactions disable DDL autocommit
+
+The runner now disables `autocommit_before_ddl` for shared transactions, including the
+CLI's default `up`, `down` and `redo` runs. On CockroachDB v25, migrations that previously
+relied on DDL autocommit can now fail: for a table created by an earlier run, an `UPDATE`
+cannot reference a column added during the same transaction, even by another migration in the run.
+
+Use `pgm.noTransaction()` for affected migrations, or `--no-single-transaction`
+(`singleTransaction: false` in the API) with `autocommit_before_ddl` enabled. These opt-outs
+can retain committed changes after failure. See the [CockroachDB transaction limitations](cli).
+
 #### The programmatic API validates migrationsTable
 
 `runner()` now rejects a missing, empty or non-string `migrationsTable` with a
@@ -216,6 +227,26 @@ Upgrading does not rebuild indexes that were already created on the wrong
 expression. Inspect affected indexes with `pg_get_indexdef`, resolve any duplicate
 column values, and use a new corrective migration to drop and recreate the
 intended unique index. See [Index Operations](migrations/indexes).
+
+#### Unicode index columns are quoted as identifiers
+
+Bare Unicode index columns now retain their identifier semantics, including
+case when `decamelize` is disabled. Previously, `createIndex('measurements',
+'Straße')` could silently index `"straße"` instead of `"Straße"`, and `größe-id`
+was interpreted as subtraction. Names such as `日本語` and `größe-id` are now
+quoted, including in `{ name: ... }` column entries. Bare names also allow `$`
+after the first character, so `Straße$1` and `Case$1` retain their case.
+
+To intentionally index a SQL expression, use explicit parentheses, for example
+`(größe-id)`, or spaced subtraction such as `größe - id`. Existing function,
+JSON and dollar-quoted expressions, quoted Unicode SQL inputs such as
+`"Straße"`, inferred index names, `dropIndex` and automatic reversal retain
+their behavior.
+
+Upgrading does not repair existing indexes. Inspect affected indexes with
+`pg_get_indexdef` and use a new corrective migration to drop and recreate any
+index on the wrong column or expression, checking duplicate values first for
+unique indexes. See [Index Operations](migrations/indexes).
 
 #### Grouped SQL filenames and existing history
 
