@@ -143,7 +143,7 @@ To move an operator class between schemas, use SQL explicitly, for example
 `pgm.sql('ALTER OPERATOR CLASS "old_schema"."my_class" USING btree SET SCHEMA "new_schema"')`.
 Provide the corresponding SQL in your down migration to reverse that move.
 
-## Operation: `alterOperatorClass`
+## Operation: `createOperatorFamily`
 
 #### `pgm.createOperatorFamily( operator_family_name, index_method )`
 
@@ -213,7 +213,7 @@ To move an operator family between schemas, use SQL explicitly, for example
 `pgm.sql('ALTER OPERATOR FAMILY "old_schema"."my_family" USING btree SET SCHEMA "new_schema"')`.
 Provide the corresponding SQL in your down migration to reverse that move.
 
-## Operation: `alterOperatorFamily`
+## Operation: `addToOperatorFamily`
 
 #### `pgm.addToOperatorFamily( operator_family_name, index_method, operator_list )`
 
